@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sürpriz</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background:
+        radial-gradient(
+            circle at center,
+            #24102f 0%,
+            #100817 55%,
+            #07040b 100%
+        );
+}
+
+canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+}
+
+/* HEDİYE BUTONU */
+
+#giftContainer {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    transition:
+        opacity .7s ease,
+        transform .7s ease;
+}
+
+#giftContainer.hidden {
+    opacity: 0;
+    transform: scale(.65);
+    pointer-events: none;
+}
+
+#giftButton {
+    width: 92px;
+    height: 92px;
+
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 26px;
+
+    background: rgba(255,255,255,.08);
+
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+
+    box-shadow:
+        0 15px 45px rgba(0,0,0,.35),
+        inset 0 1px 0 rgba(255,255,255,.12);
+
+    cursor: pointer;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    transition:
+        transform .25s ease,
+        background .25s ease;
+}
+
+#giftButton:hover {
+    transform: scale(1.07);
+    background: rgba(255,255,255,.12);
+}
+
+#giftButton svg {
+    width: 42px;
+    height: 42px;
+
+    stroke: white;
+    stroke-width: 1.5;
+    fill: none;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="giftContainer">
+
+    <button id="giftButton" aria-label="Sürprizi aç">
+
+        <svg viewBox="0 0 24 24">
+
+            <path d="M20 12v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8"/>
+
+            <path d="M3 7h18v5H3z"/>
+
+            <path d="M12 7v14"/>
+
+            <path d="M12 7H8.5A2.5 2.5 0 1 1 11 4.5C11 6 12 7 12 7z"/>
+
+            <path d="M12 7h3.5A2.5 2.5 0 1 0 13 4.5C13 6 12 7 12 7z"/>
+
+        </svg>
+
+    </button>
+
+</div>
+
+<script>
+
+/* =====================================================
+   CANVAS
+===================================================== */
+
+const canvas =
+    document.getElementById("canvas");
+
+const ctx =
+    canvas.getContext("2d");
+
+const giftContainer =
+    document.getElementById("giftContainer");
+
+const giftButton =
+    document.getElementById("giftButton");
+
+
+let width = 0;
+let height = 0;
+
+let flowers = [];
+
+let started = false;
+
+
+/* =====================================================
+   3D
+===================================================== */
+
+let rotationX = 0;
+let rotationY = 0;
+
+let targetRotationX = 0;
+let targetRotationY = 0;
+
+let dragging = false;
+
+let lastX = 0;
+let lastY = 0;
+
+const CAMERA_DISTANCE = 900;
+
+
+/* =====================================================
+   RENKLER
+===================================================== */
+
+const FLOWER_COLORS = [
+
+    "#ff4d6d",   // kırmızı
+    "#ff7b00",   // turuncu
+    "#ffd166",   // sarı
+    "#8ac926",   // yeşil
+    "#2ec4b6",   // turkuaz
+    "#4dabf7",   // mavi
+    "#5865f2",   // lacivert-mavi
+    "#7b61ff",   // mor
+    "#b967ff",   // açık mor
+    "#ff66c4",   // pembe
+    "#ffffff"    // beyaz
+];
+
+
+/* =====================================================
+   YARDIMCI
+===================================================== */
+
+function random(min, max) {
+
+    return Math.random() *
+        (max - min) +
+        min;
+}
+
+
+/* =====================================================
+   RESIZE
+===================================================== */
+
+function resize() {
+
+    const dpr =
+        Math.min(
+            window.devicePixelRatio || 1,
+            2
+        );
+
+    width =
+        window.innerWidth;
+
+    height =
+        window.innerHeight;
+
+    canvas.width =
+        width * dpr;
+
+    canvas.height =
+        height * dpr;
+
+    canvas.style.width =
+        width + "px";
+
+    canvas.style.height =
+        height + "px";
+
+    ctx.setTransform(
+        dpr,
+        0,
+        0,
+        dpr,
+        0,
+        0
+    );
+}
+
+window.addEventListener(
+    "resize",
+    resize
+);
+
+resize();
+
+
+/* =====================================================
+   KALP DENKLEMİ
+===================================================== */
+
+function heartPoint(t) {
+
+    const x =
+        16 *
+        Math.pow(
+            Math.sin(t),
+            3
+        );
+
+    const y =
+        13 * Math.cos(t)
+        - 5 * Math.cos(2 * t)
+        - 2 * Math.cos(3 * t)
+        - Math.cos(4 * t);
+
+    return {
+        x,
+        y
+    };
+}
+
+
+/* =====================================================
+   KALP ÇİZGİSİ
+===================================================== */
+
+function createHeartPoints() {
+
+    const points = [];
+
+    /*
+       Kalbin boyutu.
+    */
+
+    const scale =
+        Math.min(
+            width,
+            height
+        ) * 0.0215;
+
+
+    /*
+       Mobil / PC çiçek sayısı.
+    */
+
+    const count =
+        width < 600
+            ? 105
+            : 145;
+
+
+    /*
+       Sadece KENAR.
+       İçeride hiçbir nokta oluşturulmuyor.
+    */
+
+    for (
+        let i = 0;
+        i < count;
+        i++
+    ) {
+
+        const t =
+            (
+                Math.PI * 2 * i
+            ) / count;
+
+        const heart =
+            heartPoint(t);
+
+
+        points.push({
+
+            x:
+                heart.x * scale,
+
+            y:
+                -heart.y * scale,
+
+            /*
+               Kalp başlangıçta tamamen 2D.
+            */
+
+            z: 0
+        });
+    }
+
+    return points;
+}
+
+
+/* =====================================================
+   3D DÖNDÜRME
+===================================================== */
+
+function rotate3D(point) {
+
+    let x = point.x;
+    let y = point.y;
+    let z = point.z;
+
+
+    /* Y */
+
+    const cosY =
+        Math.cos(rotationY);
+
+    const sinY =
+        Math.sin(rotationY);
+
+    const x1 =
+        x * cosY -
+        z * sinY;
+
+    const z1 =
+        x * sinY +
+        z * cosY;
+
+
+    /* X */
+
+    const cosX =
+        Math.cos(rotationX);
+
+    const sinX =
+        Math.sin(rotationX);
+
+    const y2 =
+        y * cosX -
+        z1 * sinX;
+
+    const z2 =
+        y * sinX +
+        z1 * cosX;
+
+
+    return {
+
+        x: x1,
+        y: y2,
+        z: z2
+
+    };
+}
+
+
+/* =====================================================
+   PERSPEKTİF
+===================================================== */
+
+function project(point) {
+
+    const scale =
+        CAMERA_DISTANCE /
+        (
+            CAMERA_DISTANCE +
+            point.z
+        );
+
+    return {
+
+        x:
+            width / 2 +
+            point.x * scale,
+
+        y:
+            height / 2 +
+            point.y * scale,
+
+        scale
+
+    };
+}
+
+
+/* =====================================================
+   FLOWER
+===================================================== */
+
+class Flower {
+
+    constructor(target, index) {
+
+        this.target =
+            target;
+
+        this.index =
+            index;
+
+        this.finished =
+            false;
+
+
+        /* ÇİÇEK BOYUTU */
+
+        this.size =
+            Math.random() < 0.18
+                ? random(13, 16)
+                : random(10, 14);
+
+
+        /* RENK */
+
+        this.color =
+            FLOWER_COLORS[
+                Math.floor(
+                    Math.random() *
+                    FLOWER_COLORS.length
+                )
+            ];
+
+
+        /* DÖNÜŞ */
+
+        this.rotation =
+            random(
+                0,
+                Math.PI * 2
+            );
+
+
+        /* =========================================
+           BAŞLANGIÇ NOKTASI
+        ========================================= */
+
+        const side =
+            Math.floor(
+                random(0, 4)
+            );
+
+        const margin = 100;
+
+
+        if (side === 0) {
+
+            this.startX =
+                -margin;
+
+            this.startY =
+                random(
+                    -50,
+                    height + 50
+                );
+
+        }
+
+        else if (side === 1) {
+
+            this.startX =
+                width + margin;
+
+            this.startY =
+                random(
+                    -50,
+                    height + 50
+                );
+
+        }
+
+        else if (side === 2) {
+
+            this.startX =
+                random(
+                    -50,
+                    width + 50
+                );
+
+            this.startY =
+                -margin;
+
+        }
+
+        else {
+
+            this.startX =
+                random(
+                    -50,
+                    width + 50
+                );
+
+            this.startY =
+                height + margin;
+        }
+
+
+        this.startZ =
+            random(
+                -70,
+                70
+            );
+
+
+        /* =========================================
+           HEDEF
+        ========================================= */
+
+        this.targetX =
+            width / 2 +
+            target.x;
+
+        this.targetY =
+            height / 2 +
+            target.y;
+
+
+        /* =========================================
+           EĞRİ
+        ========================================= */
+
+        this.controlX =
+            (
+                this.startX +
+                this.targetX
+            ) / 2 +
+            random(
+                -140,
+                140
+            );
+
+        this.controlY =
+            (
+                this.startY +
+                this.targetY
+            ) / 2 +
+            random(
+                -140,
+                140
+            );
+
+        this.controlZ =
+            random(
+                -100,
+                100
+            );
+
+
+        /* =========================================
+           ANİMASYON ZAMANI
+        ========================================= */
+
+        this.delay =
+            random(
+                0,
+                1.1
+            );
+
+        this.duration =
+            random(
+                4.5,
+                6.5
+            );
+
+
+        this.x =
+            this.startX;
+
+        this.y =
+            this.startY;
+
+        this.z =
+            this.startZ;
+    }
+
+
+    /* =============================================
+       UPDATE
+    ============================================= */
+
+    update(time) {
+
+        if (
+            time <
+            this.delay
+        ) {
+            return;
+        }
+
+
+        if (
+            this.finished
+        ) {
+            return;
+        }
+
+
+        let t =
+            (
+                time -
+                this.delay
+            ) /
+            this.duration;
+
+
+        if (t >= 1) {
+
+            this.x =
+                this.targetX;
+
+            this.y =
+                this.targetY;
+
+            /*
+               SON HAL:
+               Z = 0
+            */
+
+            this.z = 0;
+
+            this.finished =
+                true;
+
+            return;
+        }
+
+
+        /*
+           Yumuşak hareket
+        */
+
+        t =
+            t * t *
+            (3 - 2 * t);
+
+
+        const inv =
+            1 - t;
+
+
+        /*
+           Quadratic Bezier
+        */
+
+        this.x =
+            inv * inv *
+                this.startX +
+
+            2 * inv * t *
+                this.controlX +
+
+            t * t *
+                this.targetX;
+
+
+        this.y =
+            inv * inv *
+                this.startY +
+
+            2 * inv * t *
+                this.controlY +
+
+            t * t *
+                this.targetY;
+
+
+        this.z =
+            inv * inv *
+                this.startZ +
+
+            2 * inv * t *
+                this.controlZ;
+    }
+
+
+    /* =============================================
+       DRAW
+    ============================================= */
+
+    draw(time) {
+
+        let point;
+
+
+        if (
+            this.finished
+        ) {
+
+            point =
+                rotate3D({
+
+                    x:
+                        this.target.x,
+
+                    y:
+                        this.target.y,
+
+                    z: 0
+
+                });
+
+        }
+
+        else {
+
+            point =
+                rotate3D({
+
+                    x:
+                        this.x -
+                        width / 2,
+
+                    y:
+                        this.y -
+                        height / 2,
+
+                    z:
+                        this.z
+
+                });
+        }
+
+
+        const projected =
+            project(point);
+
+
+        let size =
+            this.size *
+            projected.scale;
+
+
+        /*
+           Hafif canlılık.
+        */
+
+        if (
+            this.finished
+        ) {
+
+            size *=
+                1 +
+                Math.sin(
+                    time * 1.6 +
+                    this.index
+                ) * 0.025;
+        }
+
+
+        drawFlower(
+
+            projected.x,
+
+            projected.y,
+
+            size,
+
+            this.rotation,
+
+            this.color
+
+        );
+    }
+}
+
+
+/* =====================================================
+   ÇİÇEK ÇİZ
+===================================================== */
+
+function drawFlower(
+    x,
+    y,
+    size,
+    rotation,
+    color
+) {
+
+    ctx.save();
+
+
+    ctx.translate(
+        x,
+        y
+    );
+
+
+    ctx.rotate(
+        rotation
+    );
+
+
+    /*
+       Çok az glow.
+    */
+
+    ctx.shadowColor =
+        color;
+
+    ctx.shadowBlur =
+        2;
+
+
+    /*
+       5 PETAL
+    */
+
+    for (
+        let i = 0;
+        i < 5;
+        i++
+    ) {
+
+        ctx.save();
+
+
+        ctx.rotate(
+            i *
+            Math.PI *
+            2 / 5
+        );
+
+
+        ctx.beginPath();
+
+
+        ctx.moveTo(
+            0,
+            -size * 0.08
+        );
+
+
+        ctx.bezierCurveTo(
+
+            -size * 0.38,
+            -size * 0.35,
+
+            -size * 0.43,
+            -size * 0.76,
+
+            0,
+            -size
+
+        );
+
+
+        ctx.bezierCurveTo(
+
+            size * 0.43,
+            -size * 0.76,
+
+            size * 0.38,
+            -size * 0.35,
+
+            0,
+            -size * 0.08
+
+        );
+
+
+        ctx.closePath();
+
+
+        ctx.fillStyle =
+            color;
+
+        ctx.fill();
+
+
+        ctx.restore();
+    }
+
+
+    /*
+       ÇİÇEĞİN ORTASI
+    */
+
+    ctx.shadowBlur =
+        0;
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+        0,
+        0,
+        size * 0.15,
+        0,
+        Math.PI * 2
+    );
+
+
+    ctx.fillStyle =
+        "#ffd166";
+
+    ctx.fill();
+
+
+    ctx.restore();
+}
+
+
+/* =====================================================
+   BAŞLAT
+===================================================== */
+
+function startAnimation() {
+
+    if (started) {
+        return;
+    }
+
+    started = true;
+
+
+    /*
+       HEDİYE KAYBOLUYOR
+    */
+
+    giftContainer.classList.add(
+        "hidden"
+    );
+
+
+    flowers = [];
+
+
+    /*
+       SADECE KALP KONTURU
+    */
+
+    const targets =
+        createHeartPoints();
+
+
+    targets.forEach(
+        (
+            target,
+            index
+        ) => {
+
+            flowers.push(
+                new Flower(
+                    target,
+                    index
+                )
+            );
+
+        }
+    );
+
+
+    requestAnimationFrame(
+        animate
+    );
+}
+
+
+/* =====================================================
+   ANA LOOP
+===================================================== */
+
+function animate(timestamp) {
+
+    ctx.clearRect(
+        0,
+        0,
+        width,
+        height
+    );
+
+
+    const time =
+        timestamp / 1000;
+
+
+    /*
+       ROTASYON YUMUŞATMA
+    */
+
+    rotationX +=
+        (
+            targetRotationX -
+            rotationX
+        ) * 0.08;
+
+
+    rotationY +=
+        (
+            targetRotationY -
+            rotationY
+        ) * 0.08;
+
+
+    /*
+       HAREKET
+    */
+
+    for (
+        const flower of flowers
+    ) {
+
+        flower.update(
+            time
+        );
+    }
+
+
+    /*
+       DERİNLİK SIRALAMASI
+    */
+
+    const sorted =
+        [...flowers].sort(
+            (a, b) => {
+
+                const za =
+                    a.finished
+
+                    ? rotate3D({
+                        x:
+                            a.target.x,
+                        y:
+                            a.target.y,
+                        z: 0
+                    }).z
+
+                    : a.z;
+
+
+                const zb =
+                    b.finished
+
+                    ? rotate3D({
+                        x:
+                            b.target.x,
+                        y:
+                            b.target.y,
+                        z: 0
+                    }).z
+
+                    : b.z;
+
+
+                return za - zb;
+            }
+        );
+
+
+    /*
+       ÇİZ
+    */
+
+    for (
+        const flower of sorted
+    ) {
+
+        flower.draw(
+            time
+        );
+    }
+
+
+    requestAnimationFrame(
+        animate
+    );
+}
+
+
+/* =====================================================
+   MOUSE / TOUCH
+===================================================== */
+
+canvas.addEventListener(
+    "pointerdown",
+    e => {
+
+        dragging = true;
+
+        lastX =
+            e.clientX;
+
+        lastY =
+            e.clientY;
+
+
+        canvas.setPointerCapture(
+            e.pointerId
+        );
+    }
+);
+
+
+canvas.addEventListener(
+    "pointermove",
+    e => {
+
+        if (!dragging) {
+            return;
+        }
+
+
+        const dx =
+            e.clientX -
+            lastX;
+
+        const dy =
+            e.clientY -
+            lastY;
+
+
+        lastX =
+            e.clientX;
+
+        lastY =
+            e.clientY;
+
+
+        /*
+           SAĞ-SOL
+        */
+
+        targetRotationY +=
+            dx * 0.009;
+
+
+        /*
+           YUKARI-AŞAĞI
+        */
+
+        targetRotationX +=
+            dy * 0.009;
+
+
+        targetRotationX =
+            Math.max(
+                -1.45,
+                Math.min(
+                    1.45,
+                    targetRotationX
+                )
+            );
+    }
+);
+
+
+canvas.addEventListener(
+    "pointerup",
+    e => {
+
+        dragging = false;
+
+        try {
+
+            canvas.releasePointerCapture(
+                e.pointerId
+            );
+
+        } catch {}
+    }
+);
+
+
+canvas.addEventListener(
+    "pointercancel",
+    () => {
+
+        dragging = false;
+
+    }
+);
+
+
+/* =====================================================
+   BUTON
+===================================================== */
+
+giftButton.addEventListener(
+    "click",
+    startAnimation
+);
+
+</script>
+
+</body>
+</html>
